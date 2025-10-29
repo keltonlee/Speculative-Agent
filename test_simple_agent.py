@@ -90,17 +90,6 @@ def create_standard_agent():
 
 def test_standard_agent():
     """Test the standard LangChain agent"""
-    
-    print("\n" + "="*80)
-    print("STANDARD LANGCHAIN AGENT - Automatic Tool Calling")
-    print("="*80)
-    print("\n✨ Features:")
-    print("  - Uses ChatOllama with Llama 3.1")
-    print("  - Native tool calling support (NO manual parsing!)")
-    print("  - LangChain's create_agent() handles everything")
-    print("  - Fully automatic tool execution")
-    print("="*80)
-    
     # Create agent
     agent = create_standard_agent()
     
