@@ -1,7 +1,17 @@
-from langchain_ollama import ChatOllama
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.tools import tool
-from langchain.agents import create_agent
+from langgraph.prebuilt import create_react_agent # type: ignore[reportDeprecated]
 import time
+import os
+
+# Fix for langchain version compatibility issue
+import langchain
+if not hasattr(langchain, 'verbose'):
+    langchain.verbose = False
+if not hasattr(langchain, 'debug'):
+    langchain.debug = False
+if not hasattr(langchain, 'llm_cache'):
+    langchain.llm_cache = None
 
 # ==================== Define Tools ====================
 
@@ -59,10 +69,10 @@ def get_current_time(timezone: str = "UTC") -> str:
     return f"Current time in {timezone}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
 
-# ==================== Create Standard LangChain Agent ====================
+# ==================== Create Agent with LangGraph ====================
 
-def create_standard_agent():
-    """Create a standard LangChain agent - fully automatic tool calling!"""
+def create_gemini_agent():
+    """Create a ReAct agent using LangGraph - fully automatic tool calling!"""
     
     # Define tools
     tools = [
@@ -74,24 +84,26 @@ def create_standard_agent():
     
     print(f"\n📋 Available Tools: {[t.name for t in tools]}")
     
-    # Initialize LLM with Llama 3.1 (supports tool calling!)
-    model = ChatOllama(model="llama3.1", temperature=0)
-    
-    agent = create_agent(
-        model=model,
-        tools=tools,
-        system_prompt="You are a helpful assistant with access to various tools. Use the tools to answer user questions accurately.",
+    # Initialize LLM with Gemini
+    # Try gemini-2.0-flash-exp for tool calling support
+    model = ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash-exp",
+        temperature=0,
+        google_api_key=os.environ["GOOGLE_API_KEY"]
     )
+    
+    agent = create_react_agent(model, tools)
     
     return agent
 
 
 # ==================== Test the Agent ====================
 
-def test_standard_agent():
-    """Test the standard LangChain agent"""
+def test_agent():
+    """Test the Gemini agent"""
+    
     # Create agent
-    agent = create_standard_agent()
+    agent = create_gemini_agent()
     
     # Test queries
     test_queries = [
@@ -102,59 +114,65 @@ def test_standard_agent():
     
     for i, query in enumerate(test_queries, 1):
         print(f"\n{'='*80}")
-        print(f"QUERY {i}: {query}")
+        print(f"TEST CASE {i}: {query}")
         print(f"{'='*80}\n")
         
         try:
-            # Invoke the agent - LangChain handles EVERYTHING automatically!
-            # The LLM sees tools via bind_tools(), decides which to call, 
-            # generates structured tool_calls output,
-            # LangChain parses it, executes the tool, feeds back to LLM, repeats as needed
-            result = agent.invoke({"messages": [("human", query)]})
+            # Invoke the agent - LangGraph handles EVERYTHING automatically!
+            result = agent.invoke({"messages": [("user", query)]})
             
             print(f"\n{'='*80}")
-            print(f"RESPONSE:")
+            print(f"AGENT EXECUTION TRACE:")
             print(f"{'='*80}")
             
-            # Show detailed tool call information
+            # Show all messages in the conversation
             messages = result.get("messages", [])
-            for i, msg in enumerate(messages):
-                print(f"\n--- Message {i+1} ---")
+            for j, msg in enumerate(messages):
+                print(f"\n--- Step {j+1} ---")
+                msg_type = type(msg).__name__
+                print(f"Type: {msg_type}")
+                
                 if hasattr(msg, 'content') and msg.content:
                     print(f"Content: {msg.content}")
+                
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    print(f"Tool Calls: {msg.tool_calls}")
+                    print(f"Tool Calls:")
+                    for tc in msg.tool_calls:
+                        print(f"  - {tc['name']}({tc['args']})")
+                
                 if hasattr(msg, 'name') and msg.name:
-                    print(f"Tool Name: {msg.name}")
-                    print(f"Tool Result: {msg.content}")
+                    print(f"Tool: {msg.name}")
             
-            # Extract the final answer from the messages
+            # Extract final answer
             final_msg = messages[-1]
-            if hasattr(final_msg, 'content') and final_msg.content:
-                print(f"\n{'='*80}")
-                print(f"FINAL ANSWER:")
-                print(f"{'='*80}")
-                print(final_msg.content)
-            else:
-                print(result)
+            print(f"\n{'='*80}")
+            print(f"FINAL ANSWER:")
+            print(f"{'='*80}")
+            print(final_msg.content)
             print(f"{'='*80}\n")
             
-            time.sleep(1)
+            time.sleep(2)
             
         except Exception as e:
             print(f"\n❌ Error: {e}")
             import traceback
             traceback.print_exc()
-            print("Continuing to next query...\n")
+            print("\nContinuing to next query...\n")
+
 
 # ==================== Main ====================
 
 if __name__ == "__main__":
     try:
-        test_standard_agent()
+        print("\n" + "="*80)
+        print("🤖 GEMINI AGENT WITH LANGGRAPH")
+        print("="*80)
+        
+        test_agent()
         
         print("\n" + "="*80)
-        print("✅ DEMO COMPLETED!")
+        print("✅ ALL TESTS COMPLETED!")
+        print("="*80)
         
     except KeyboardInterrupt:
         print("\n\n⚠️ Demo interrupted by user")
@@ -162,4 +180,3 @@ if __name__ == "__main__":
         print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
-
