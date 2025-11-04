@@ -1,0 +1,29 @@
+{
+  "deep_research": {
+    "components": [
+      "search_web",
+      "extract_key_points",
+      "verify_facts",
+      "summarize_text"
+    ],
+    "parameter_mapping": {
+      "topic": "query"
+    },
+    "allow_reordering": false,
+    "allow_extra_tools": false,
+    "description": "Comprehensive research = search + extract + verify + summarize"
+  },
+  "analyze_and_report": {
+    "components": [
+      "extract_key_points",
+      "calculate",
+      "summarize_text"
+    ],
+    "parameter_mapping": {
+      "data": "text"
+    },
+    "allow_reordering": false,
+    "allow_extra_tools": false,
+    "description": "Analysis and reporting = extract + calculate + summarize"
+  }
+}

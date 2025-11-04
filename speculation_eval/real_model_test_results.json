@@ -1,0 +1,133 @@
+[
+  {
+    "test_id": "calculation_test",
+    "query": "What is 127 multiplied by 34?",
+    "draft_tools": [
+      "calculate"
+    ],
+    "target_tool": "calculate",
+    "draft_time": 603.0737159252167,
+    "target_time": 4.452848196029663,
+    "validation": {
+      "valid": true,
+      "error": [],
+      "error_type": "",
+      "param_equivalent": true,
+      "semantic_equivalent": true,
+      "details": {
+        "parameter_check": {
+          "valid": true,
+          "errors": []
+        },
+        "semantic_check": {
+          "valid": true,
+          "errors": []
+        }
+      }
+    },
+    "expected_match": true
+  },
+  {
+    "test_id": "weather_test",
+    "query": "What's the weather like in Tokyo?",
+    "draft_tools": [
+      "get_weather"
+    ],
+    "target_tool": "get_weather",
+    "draft_time": 1.087770938873291,
+    "target_time": 3.1359658241271973,
+    "validation": {
+      "valid": true,
+      "error": [],
+      "error_type": "",
+      "param_equivalent": true,
+      "semantic_equivalent": true,
+      "details": {
+        "parameter_check": {
+          "valid": true,
+          "errors": []
+        },
+        "semantic_check": {
+          "valid": true,
+          "errors": []
+        }
+      }
+    },
+    "expected_match": true
+  },
+  {
+    "test_id": "research_test",
+    "query": "Research the history of artificial intelligence and provide a comprehensive summary",
+    "draft_tools": [
+      "deep_research"
+    ],
+    "target_tool": "deep_research",
+    "draft_time": 2.5868570804595947,
+    "target_time": 12.577707052230835,
+    "validation": {
+      "valid": false,
+      "error": [
+        "[Param] Target parameter 'topic' (mapped to 'query') not found in draft sequence",
+        "[Semantic] Missing expected tools: ['search_web', 'extract_key_points', 'verify_facts', 'summarize_text']. Expected: ['search_web', 'extract_key_points', 'verify_facts', 'summarize_text'], Got: ['deep_research']",
+        "[Semantic] Unexpected tools in sequence: ['deep_research']"
+      ],
+      "error_type": "speculation:both_checks_failed",
+      "param_equivalent": false,
+      "semantic_equivalent": false,
+      "details": {
+        "parameter_check": {
+          "valid": false,
+          "errors": [
+            "Target parameter 'topic' (mapped to 'query') not found in draft sequence"
+          ]
+        },
+        "semantic_check": {
+          "valid": false,
+          "errors": [
+            "Missing expected tools: ['search_web', 'extract_key_points', 'verify_facts', 'summarize_text']. Expected: ['search_web', 'extract_key_points', 'verify_facts', 'summarize_text'], Got: ['deep_research']",
+            "Unexpected tools in sequence: ['deep_research']"
+          ]
+        }
+      }
+    },
+    "expected_match": true
+  },
+  {
+    "test_id": "trip_planning_test",
+    "query": "I want to travel to Paris next month. Check the weather, book a flight from New York, and create a summary",
+    "draft_tools": [],
+    "target_tool": "none",
+    "draft_time": 0.7114078998565674,
+    "target_time": 611.2708029747009,
+    "validation": {
+      "valid": false,
+      "error": [
+        "Invalid draft result: must be non-empty list"
+      ],
+      "error_type": "speculation:invalid_draft_format",
+      "param_equivalent": false,
+      "semantic_equivalent": false,
+      "details": {}
+    },
+    "expected_match": false
+  },
+  {
+    "test_id": "data_analysis_test",
+    "query": "Analyze this data: accuracy 95%, latency 120ms, throughput 1000 req/s. Calculate the efficiency and summarize findings",
+    "draft_tools": [],
+    "target_tool": "analyze_and_report",
+    "draft_time": 1.472430944442749,
+    "target_time": 9.89632797241211,
+    "validation": {
+      "valid": false,
+      "error": [
+        "Invalid draft result: must be non-empty list"
+      ],
+      "error_type": "speculation:invalid_draft_format",
+      "param_equivalent": false,
+      "semantic_equivalent": false,
+      "details": {}
+    },
+    "expected_match": true
+  }
+]
