@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Speculative Agent Test - Comparing Draft and Target models with real tools
+Verbose Sample Test - 5 random queries with detailed output
 
-This test demonstrates:
+This test demonstrates the speculation verification system with:
 1. Draft model (OpenAI GPT-5-nano) vs Target model (Gemini 2.5 Flash Lite)
 2. Both have access to the same real search tools
 3. Verification with strict AST and embedding fallback
-4. Single-run efficiency with comprehensive acceptance rate analysis
+4. VERBOSE output showing all details including embedding similarity
+5. Only 5 queries for quick testing
 """
 
 import sys
@@ -73,14 +74,14 @@ def create_target_agent(tools):
 
 def load_test_queries(
     dataset: str = "browsecomp",
-    n_samples: int = 100
+    n_samples: int = 5
 ) -> List[str]:
     """
     Load random queries from the specified dataset.
 
     Args:
         dataset: Either "browsecomp" or "hotpot"
-        n_samples: Number of random samples to load
+        n_samples: Number of random samples to load (default 5 for verbose testing)
 
     Returns:
         List of query strings
@@ -137,7 +138,7 @@ def load_test_queries(
 
 # Configure dataset here: "browsecomp" or "hotpot"
 DATASET = os.environ.get("DATASET", "browsecomp")  # Can be set via environment variable
-TEST_QUERIES = load_test_queries(dataset=DATASET, n_samples=100)
+TEST_QUERIES = load_test_queries(dataset=DATASET, n_samples=5)
 
 
 # ==================== Test Execution ====================
@@ -156,53 +157,47 @@ def extract_tool_calls(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     return tool_calls
 
 
-def run_test(query: str, draft_agent, target_agent, use_fallback: bool, verbose: bool = False):
-    """Run a single test"""
-    if verbose:
-        print(f"\n{'='*80}")
-        print(f"Query: {query}")
-        print(f"Fallback: {'ENABLED' if use_fallback else 'DISABLED'}")
-        print(f"{'='*80}")
+def run_test(query: str, draft_agent, target_agent, use_fallback: bool):
+    """Run a single test with VERBOSE output"""
+    print(f"\n{'='*80}")
+    print(f"Query: {query[:100]}...")  # Truncate long queries
+    print(f"Fallback: {'ENABLED' if use_fallback else 'DISABLED'}")
+    print(f"{'='*80}")
 
     system_msg = SystemMessage(content="You are a helpful assistant. Use tools to answer accurately.")
 
     # Draft model
-    if verbose:
-        print("Running draft (gpt-5-nano)...")
+    print("Running draft (gpt-5-nano)...")
     try:
         draft_result = draft_agent.invoke({"messages": [system_msg, ("user", query)]})
         draft_tools = extract_tool_calls(draft_result)
-        if verbose:
-            print(f"  Draft tools: {[t['name'] for t in draft_tools]}")
+        print(f"  ✅ Draft tools: {[t['name'] for t in draft_tools]}")
     except Exception as e:
-        if verbose:
-            print(f"  Error: {e}")
+        print(f"  ❌ Error: {e}")
         return None
 
     # Target model
-    if verbose:
-        print("Running target (gemini-2.5-flash-lite)...")
+    print("Running target (gemini-2.5-flash-lite)...")
     try:
         target_result = target_agent.invoke({"messages": [system_msg, ("user", query)]})
         target_tools = extract_tool_calls(target_result)
-        if verbose:
-            print(f"  Target tools: {[t['name'] for t in target_tools]}")
+        print(f"  ✅ Target tools: {[t['name'] for t in target_tools]}")
     except Exception as e:
-        if verbose:
-            print(f"  Error: {e}")
+        print(f"  ❌ Error: {e}")
         return None
 
     if not target_tools:
-        if verbose:
-            print("  No target tools to compare")
+        print("  ⚠️  No target tools to compare")
         return None
 
-    # Verify with timing
+    # Verify
     if EVAL_AVAILABLE:
         composition_mappings = {
             t['name']: {"components": [t['name']], "parameter_mapping": {}}
             for t in (draft_tools + target_tools)
         }
+
+        print("\n  🔍 Running verification...")
 
         # Measure verification time
         verification_start = time.time()
@@ -215,19 +210,33 @@ def run_test(query: str, draft_agent, target_agent, use_fallback: bool, verbose:
             use_embedding_fallback=use_fallback,
             embedding_threshold=0.5,
             embedding_method="gemini",
-            verbose_embedding=verbose
+            verbose_embedding=True  # Always verbose in this test
         )
         verification_time = time.time() - verification_start
 
-        if verbose:
-            print(f"\n  ✓ Valid: {validation['valid']}")
-            print(f"  ✓ Verified by: {validation['verified_by']}")
-            print(f"  ✓ Verification time: {verification_time*1000:.2f}ms")
+        print(f"\n  ✓ Valid: {validation['valid']}")
+        print(f"  ✓ Verified by: {validation['verified_by']}")
+        print(f"  ✓ Verification time: {verification_time*1000:.2f}ms")
 
-            if validation.get('details', {}).get('embedding_check'):
-                emb = validation['details']['embedding_check']
-                if 'similarity_score' in emb:
-                    print(f"  ✓ Embedding similarity: {emb['similarity_score']:.4f} (threshold: {emb.get('threshold', 0.5)})")
+        if validation.get('details', {}).get('embedding_check'):
+            emb = validation['details']['embedding_check']
+            if 'similarity_score' in emb:
+                print(f"  ✓ Embedding similarity: {emb['similarity_score']:.4f} (threshold: {emb.get('threshold', 0.5)})")
+
+        # Show parameter and semantic check details
+        if validation.get('details', {}).get('parameter_check'):
+            param_check = validation['details']['parameter_check']
+            print(f"  ✓ Parameter check: {'PASS' if param_check['valid'] else 'FAIL'}")
+            if param_check.get('errors'):
+                for err in param_check['errors']:
+                    print(f"    - {err}")
+
+        if validation.get('details', {}).get('semantic_check'):
+            sem_check = validation['details']['semantic_check']
+            print(f"  ✓ Semantic check: {'PASS' if sem_check['valid'] else 'FAIL'}")
+            if sem_check.get('errors'):
+                for err in sem_check['errors']:
+                    print(f"    - {err}")
 
         return {
             "query": query,
@@ -242,8 +251,7 @@ def run_test(query: str, draft_agent, target_agent, use_fallback: bool, verbose:
 def main():
     """Main execution"""
     print("\n" + "="*80)
-    print("SPECULATIVE AGENT TEST - ACCEPTANCE RATE COMPARISON")
-    print(f"Dataset: {DATASET.upper()} ({len(TEST_QUERIES)} queries)")
+    print(f"VERBOSE SAMPLE TEST - {len(TEST_QUERIES)} Random Queries from {DATASET.upper()}")
     print("="*80)
 
     if not os.environ.get("OPENAI_API_KEY"):
@@ -269,16 +277,17 @@ def main():
     draft_agent = create_draft_agent(tools)
     target_agent = create_target_agent(tools)
 
-    # Run tests once with fallback enabled
+    # Run tests once with fallback enabled (VERBOSE)
     print("\n" + "="*80)
-    print("RUNNING TESTS WITH FALLBACK VERIFICATION")
+    print("RUNNING TESTS WITH FALLBACK VERIFICATION (VERBOSE)")
     print("="*80)
     results = []
-    for query in tqdm(TEST_QUERIES, desc="Processing queries", unit="query"):
-        result = run_test(query, draft_agent, target_agent, use_fallback=True, verbose=False)
+    for i, query in enumerate(TEST_QUERIES, 1):
+        print(f"\n[Query {i}/{len(TEST_QUERIES)}]")
+        result = run_test(query, draft_agent, target_agent, use_fallback=True)
         if result:
             results.append(result)
-        time.sleep(0.5)
+        time.sleep(1)
 
     # Analyze results - count by verification method
     print("\n" + "="*80)
@@ -335,7 +344,7 @@ def main():
         print(f"  Fallback overhead:     +{overhead*1000:.2f}ms ({overhead/avg_strict_time*100:.1f}% increase)")
 
     print("\n" + "="*80)
-    print("✅ TEST COMPLETE")
+    print("✅ VERBOSE TEST COMPLETE")
     print("="*80)
 
 

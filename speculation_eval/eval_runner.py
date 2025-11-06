@@ -46,7 +46,10 @@ class SpeculationEvaluator:
         self,
         composition_mappings: Optional[Dict[str, Any]] = None,
         check_params: bool = True,
-        check_semantics: bool = True
+        check_semantics: bool = True,
+        use_embedding_fallback: bool = False,
+        embedding_threshold: float = 0.5,
+        embedding_method: str = "gemini"
     ):
         """
         Initialize evaluator.
@@ -55,9 +58,15 @@ class SpeculationEvaluator:
             composition_mappings: Tool composition definitions. If None, loads from file.
             check_params: Whether to check parameter equivalence
             check_semantics: Whether to check semantic equivalence
+            use_embedding_fallback: Whether to use embedding similarity fallback
+            embedding_threshold: Similarity threshold for embedding fallback
+            embedding_method: Embedding method ("gemini" or "gemma")
         """
         self.check_params = check_params
         self.check_semantics = check_semantics
+        self.use_embedding_fallback = use_embedding_fallback
+        self.embedding_threshold = embedding_threshold
+        self.embedding_method = embedding_method
 
         # Load composition mappings
         if composition_mappings is None:
@@ -94,7 +103,10 @@ class SpeculationEvaluator:
             target_result=target_result,
             composition_mapping=self.composition_mappings,
             check_params=self.check_params,
-            check_semantics=self.check_semantics
+            check_semantics=self.check_semantics,
+            use_embedding_fallback=self.use_embedding_fallback,
+            embedding_threshold=self.embedding_threshold,
+            embedding_method=self.embedding_method
         )
 
         # Add test metadata
@@ -206,6 +218,9 @@ def run_evaluation(
     output_path: Optional[str] = None,
     check_params: bool = True,
     check_semantics: bool = True,
+    use_embedding_fallback: bool = False,
+    embedding_threshold: float = 0.5,
+    embedding_method: str = "gemini",
     print_report: bool = True
 ) -> List[Dict[str, Any]]:
     """
@@ -218,6 +233,9 @@ def run_evaluation(
         output_path: Optional path to save results
         check_params: Whether to check parameter equivalence
         check_semantics: Whether to check semantic equivalence
+        use_embedding_fallback: Whether to use embedding similarity fallback
+        embedding_threshold: Similarity threshold for embedding fallback
+        embedding_method: Embedding method ("gemini" or "gemma")
         print_report: Whether to print summary report
 
     Returns:
@@ -233,7 +251,10 @@ def run_evaluation(
     evaluator = SpeculationEvaluator(
         composition_mappings=comp_mappings,
         check_params=check_params,
-        check_semantics=check_semantics
+        check_semantics=check_semantics,
+        use_embedding_fallback=use_embedding_fallback,
+        embedding_threshold=embedding_threshold,
+        embedding_method=embedding_method
     )
 
     # Run evaluation

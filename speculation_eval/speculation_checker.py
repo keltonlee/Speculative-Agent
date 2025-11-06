@@ -6,11 +6,13 @@ This module implements the verification logic for tool call speculation by compa
 2. Target model's single complex tool call
 
 The checker validates both parameter equivalence and semantic equivalence.
+With the new embedding fallback feature, it can also use semantic similarity
+when strict AST comparison fails.
 """
 
 import sys
 import os
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Literal
 import json
 
 # Add BFCL to path to reuse AST utilities
@@ -25,6 +27,18 @@ try:
     BFCL_AVAILABLE = True
 except ImportError:
     BFCL_AVAILABLE = False
+
+# Import embedding similarity module
+try:
+    from .embedding_similarity import check_embedding_equivalence
+    EMBEDDING_AVAILABLE = True
+except ImportError:
+    try:
+        from embedding_similarity import check_embedding_equivalence
+        EMBEDDING_AVAILABLE = True
+    except ImportError:
+        EMBEDDING_AVAILABLE = False
+        print("Warning: embedding_similarity module not available")
 
 
 def check_parameter_equivalence(
@@ -195,7 +209,11 @@ def speculation_checker(
     target_result: Dict[str, Any],
     composition_mapping: Dict[str, Any],
     check_params: bool = True,
-    check_semantics: bool = True
+    check_semantics: bool = True,
+    use_embedding_fallback: bool = False,
+    embedding_threshold: float = 0.5,
+    embedding_method: Literal["gemini", "gemma"] = "gemini",
+    verbose_embedding: bool = False
 ) -> Dict[str, Any]:
     """
     Main checker function - validates draft sequence against target call.
@@ -206,6 +224,10 @@ def speculation_checker(
         composition_mapping: Tool equivalence definitions
         check_params: Whether to check parameter equivalence
         check_semantics: Whether to check semantic equivalence
+        use_embedding_fallback: If True, use embedding similarity when strict checks fail
+        embedding_threshold: Similarity threshold for embedding fallback (default 0.5)
+        embedding_method: Embedding method to use ("gemini" or "gemma")
+        verbose_embedding: If True, print detailed embedding information
 
     Returns:
         Dictionary with:
@@ -214,6 +236,8 @@ def speculation_checker(
         - error_type: str - Category of error
         - param_equivalent: bool - Parameter check result
         - semantic_equivalent: bool - Semantic check result
+        - verified_by: str - Which method verified the result (strict_ast, embedding_fallback, none)
+        - embedding_details: Dict - Details from embedding check (if used)
     """
     result = {
         "valid": False,
@@ -221,6 +245,7 @@ def speculation_checker(
         "error_type": "",
         "param_equivalent": False,
         "semantic_equivalent": False,
+        "verified_by": "none",
         "details": {}
     }
 
@@ -265,10 +290,67 @@ def speculation_checker(
     else:
         result["semantic_equivalent"] = True  # Skip check
 
-    # Overall validity
-    result["valid"] = result["param_equivalent"] and result["semantic_equivalent"]
+    # Overall validity from strict checks
+    strict_valid = result["param_equivalent"] and result["semantic_equivalent"]
+    result["valid"] = strict_valid
 
-    # Set error type
+    # If strict checks passed, mark as verified by strict AST
+    if strict_valid:
+        result["verified_by"] = "strict_ast"
+    else:
+        # Strict checks failed - try embedding fallback if enabled
+        if use_embedding_fallback:
+            if not EMBEDDING_AVAILABLE:
+                result["error"].append("[Embedding] Embedding module not available")
+                result["details"]["embedding_check"] = {
+                    "valid": False,
+                    "errors": ["Embedding module not available"]
+                }
+            else:
+                # Run embedding similarity check
+                if verbose_embedding:
+                    print(f"\n{'='*80}")
+                    print("ATTEMPTING EMBEDDING FALLBACK")
+                    print(f"{'='*80}")
+                    print("Strict AST checks failed. Trying embedding-based similarity...")
+
+                try:
+                    embedding_valid, embedding_errors, embedding_details = check_embedding_equivalence(
+                        draft_result,
+                        target_result,
+                        threshold=embedding_threshold,
+                        method=embedding_method,
+                        verbose=verbose_embedding
+                    )
+
+                    result["details"]["embedding_check"] = {
+                        "valid": embedding_valid,
+                        "errors": embedding_errors,
+                        "similarity_score": embedding_details.get("similarity_score", 0.0),
+                        "threshold": embedding_threshold,
+                        "method": embedding_method,
+                        "draft_string": embedding_details.get("draft_string", ""),
+                        "target_string": embedding_details.get("target_string", "")
+                    }
+
+                    if embedding_valid:
+                        # Embedding fallback succeeded!
+                        result["valid"] = True
+                        result["verified_by"] = "embedding_fallback"
+                        result["error"] = []  # Clear previous errors since we passed with fallback
+                        result["error_type"] = ""
+                    else:
+                        # Embedding fallback also failed
+                        result["error"].extend([f"[Embedding] {e}" for e in embedding_errors])
+
+                except Exception as e:
+                    result["error"].append(f"[Embedding] Fallback check failed: {e}")
+                    result["details"]["embedding_check"] = {
+                        "valid": False,
+                        "errors": [str(e)]
+                    }
+
+    # Set error type if still not valid
     if not result["valid"]:
         if not result["param_equivalent"] and not result["semantic_equivalent"]:
             result["error_type"] = "speculation:both_checks_failed"
