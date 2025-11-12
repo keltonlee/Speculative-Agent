@@ -1,5 +1,5 @@
 """LangGraph nodes and graph construction using proper tool calling."""
-from typing import Literal
+from typing import Literal, Any
 from langchain_core.messages import SystemMessage, AIMessage, ToolMessage
 
 from langgraph.graph import StateGraph, END, START
@@ -9,6 +9,26 @@ from .models import RunState, Msg
 from .llm_adapter import get_actor_model, convert_msg_to_langchain, SYSTEM_PROMPT
 from .tools_langchain import TOOLS_BY_NAME
 from .config import config
+
+
+# -----------------------------
+# Helper functions
+# -----------------------------
+
+def _extract_content_str(content: Any) -> str:
+    """Extract string content from response (handles both str and list formats)."""
+    if isinstance(content, str):
+        return content
+    elif isinstance(content, list):
+        # Some models return content as list of dicts or strings
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and 'text' in item:
+                parts.append(item['text'])
+        return ' '.join(parts) if parts else ""
+    return str(content) if content else ""
 
 
 # -----------------------------
@@ -43,7 +63,7 @@ def node_llm(state: RunState) -> RunState:
     
     # Check if final answer (no tool calls)
     if not response.tool_calls:
-        content = response.content
+        content = _extract_content_str(response.content)
         
         # Check if this is a final answer
         if "FINAL ANSWER:" in content.upper():
@@ -57,12 +77,17 @@ def node_llm(state: RunState) -> RunState:
         else:
             # Just thinking/reasoning
             state.messages.append(Msg(role="assistant", content=content))
+            
+            # If we've reached max steps and have content, treat it as final answer
+            if state.step >= config.max_steps and content:
+                state.answer = content
+                state.done = True
         
         return state
     
     # Has tool calls - store them for execution
     # Store the AI message with metadata about tool calls
-    ai_msg_content = response.content or "[Calling tools]"
+    ai_msg_content = _extract_content_str(response.content) or "[Calling tools]"
     state.messages.append(Msg(role="assistant", content=ai_msg_content))
     
     # Store tool calls in state for the tool node to execute

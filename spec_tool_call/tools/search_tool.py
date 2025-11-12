@@ -80,6 +80,85 @@ session.headers.update(headers)
 # MAIN ENTRY POINTS - These are the functions users call
 # =============================================================================
 
+def search_gensee_web(query: str, max_results: int = 5) -> str:
+    """
+    GENSEE AI SEARCH: Search the web using Gensee AI platform.
+    Searches Wikipedia by default for reliable information.
+    
+    Args:
+        query: Search query string
+        max_results: Maximum number of results to return (default: 5)
+        
+    Returns:
+        Formatted string containing search results
+    """
+    try:
+        # Get API key from config
+        from ..config import config
+        api_key = config.gensee_api_key
+        
+        if not api_key:
+            return "Error: GENSEE_API_KEY not configured. Please set it in your .env file."
+        
+        url = 'https://platform.gensee.ai/tool/search'
+        
+        # Prepare search query (add Wikipedia site restriction)
+        search_query = f"site:wikipedia.org {query}"
+        
+        data = {
+            'query': search_query,
+            'max_results': max_results
+        }
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}'
+        }
+        
+        # Make API request
+        response = requests.post(url, json=data, headers=headers, timeout=20)
+        response.raise_for_status()
+        
+        result = response.json()
+        
+        # Format the results for better readability
+        if isinstance(result, dict):
+            # If result has a 'results' field, format it nicely
+            if 'results' in result and isinstance(result['results'], list):
+                formatted_results = []
+                formatted_results.append(f"Found {len(result['results'])} Wikipedia results:\n")
+                
+                for idx, item in enumerate(result['results'], 1):
+                    if isinstance(item, dict):
+                        title = item.get('title', 'No title')
+                        url = item.get('url', '')
+                        snippet = item.get('snippet', item.get('description', ''))
+                        
+                        result_text = []
+                        result_text.append(f"{idx}. {title}")
+                        if url:
+                            result_text.append(f"   URL: {url}")
+                        if snippet:
+                            result_text.append(f"   Summary: {snippet}")
+                        
+                        formatted_results.append("\n".join(result_text))
+                        formatted_results.append("")
+                
+                return "\n".join(formatted_results)
+            else:
+                # Return raw JSON if format is unexpected
+                return json.dumps(result, indent=2, ensure_ascii=False)
+        else:
+            return str(result)
+            
+    except requests.exceptions.Timeout:
+        return "Error: Gensee API request timed out (20 seconds)"
+    except requests.exceptions.RequestException as e:
+        return f"Error: Failed to connect to Gensee API - {str(e)}"
+    except Exception as e:
+        return f"Error during Gensee search: {str(e)}"
+
+
 def search_serper_web(query: str, max_results: int = 5) -> str:
     """
     BASIC SEARCH: Get search results with titles, URLs, and snippets only.
