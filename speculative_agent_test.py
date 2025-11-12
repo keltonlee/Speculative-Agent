@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-Speculative Agent Test - Comparing Draft and Target models with real tools
-
-This test demonstrates:
-1. Draft model (OpenAI GPT-5-nano) vs Target model (Gemini 2.5 Flash Lite)
-2. Both have access to the same real search tools
-3. Verification with strict AST and embedding fallback
-4. Single-run efficiency with comprehensive acceptance rate analysis
-"""
-
 import sys
 import os
 sys.path.insert(0, 'speculation_eval')
@@ -24,6 +13,7 @@ from typing import List, Dict, Any
 import warnings
 import pandas as pd
 from tqdm import tqdm
+from datetime import datetime
 
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
@@ -37,11 +27,12 @@ if not hasattr(langchain, 'llm_cache'):
     langchain.llm_cache = None
 
 # Import speculation evaluation system
+# NOTE: Old complex speculation_checker removed - use speculative_pipeline.py instead
+# which has simple AST + embedding verification (no composition mapping)
 try:
-    from speculation_eval.speculation_checker import speculation_checker
     from speculation_eval.acceptance_metrics import calculate_acceptance_rates
     from speculation_eval.tools_registry import get_all_available_tools
-    EVAL_AVAILABLE = True
+    EVAL_AVAILABLE = False  # Disable old verification - use new speculative_pipeline.py
 except ImportError:
     EVAL_AVAILABLE = False
     print("Warning: Could not import speculation_eval modules")
@@ -53,7 +44,7 @@ def create_draft_agent(tools):
     """Draft agent - OpenAI GPT-5-nano"""
     model = ChatOpenAI(
         model="gpt-5-nano",
-        temperature=0,
+        reasoning_effort="low",
         # API key from environment variable OPENAI_API_KEY
     )
     return create_react_agent(model, tools)
@@ -63,7 +54,6 @@ def create_target_agent(tools):
     """Target agent - Gemini 2.5 Flash Lite"""
     model = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash-lite",
-        temperature=0,
         google_api_key=os.environ["GOOGLE_API_KEY"]
     )
     return create_react_agent(model, tools)
@@ -197,21 +187,16 @@ def run_test(query: str, draft_agent, target_agent, use_fallback: bool, verbose:
             print("  No target tools to compare")
         return None
 
-    # Verify with timing
+    # Verify with timing (simple AST + embedding fallback, no composition mapping)
     if EVAL_AVAILABLE:
-        composition_mappings = {
-            t['name']: {"components": [t['name']], "parameter_mapping": {}}
-            for t in (draft_tools + target_tools)
-        }
-
         # Measure verification time
         verification_start = time.time()
         validation = speculation_checker(
             draft_result=draft_tools,
-            target_result=target_tools[0],
-            composition_mapping=composition_mappings,
-            check_params=True,
-            check_semantics=True,
+            target_result=target_tools[0] if target_tools else {},
+            composition_mapping={},  # Not used - direct comparison only
+            check_params=False,  # Skip complex parameter mapping
+            check_semantics=False,  # Skip complex semantic checks
             use_embedding_fallback=use_fallback,
             embedding_threshold=0.5,
             embedding_method="gemini",
@@ -231,9 +216,13 @@ def run_test(query: str, draft_agent, target_agent, use_fallback: bool, verbose:
 
         return {
             "query": query,
+            "draft_tools": draft_tools,
+            "target_tools": target_tools,
             "validation": validation,
             "verified_by": validation['verified_by'],
-            "verification_time": verification_time
+            "verification_time": verification_time,
+            "draft_model": "gpt-5-nano",
+            "target_model": "gemini-2.5-flash-lite"
         }
 
     return None
@@ -333,6 +322,44 @@ def main():
     if fallback_times and strict_times:
         overhead = avg_fallback_time - avg_strict_time
         print(f"  Fallback overhead:     +{overhead*1000:.2f}ms ({overhead/avg_strict_time*100:.1f}% increase)")
+
+    # Save detailed results to JSON file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_dir = "results"
+    os.makedirs(results_dir, exist_ok=True)
+
+    results_file = os.path.join(results_dir, f"detailed_results_{DATASET}_{timestamp}.json")
+
+    # Prepare results for JSON serialization
+    detailed_results = {
+        "metadata": {
+            "timestamp": timestamp,
+            "dataset": DATASET,
+            "total_queries": total,
+            "draft_model": "gpt-5-nano",
+            "target_model": "gemini-2.5-flash-lite",
+            "embedding_method": "gemini-embedding-001",
+            "embedding_threshold": 0.5
+        },
+        "summary": {
+            "strict_only_passed": strict_only_passed,
+            "fallback_passed": fallback_passed,
+            "both_failed": both_failed,
+            "without_fallback_rate": without_fallback_rate,
+            "with_fallback_rate": with_fallback_rate,
+            "improvement": improvement,
+            "total_verification_time": total_verification_time,
+            "avg_verification_time": avg_verification_time,
+            "avg_strict_time": avg_strict_time,
+            "avg_fallback_time": avg_fallback_time
+        },
+        "queries": results
+    }
+
+    with open(results_file, 'w') as f:
+        json.dump(detailed_results, f, indent=2)
+
+    print(f"\n💾 Detailed results saved to: {results_file}")
 
     print("\n" + "="*80)
     print("✅ TEST COMPLETE")

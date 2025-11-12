@@ -35,7 +35,7 @@ except ImportError:
     pass
 
 try:
-    from langchain_tavily import TavilySearchResults
+    from langchain_tavily import TavilySearch
     TAVILY_AVAILABLE = True
 except ImportError:
     pass
@@ -71,7 +71,6 @@ except ImportError:
 # Google Serper
 try:
     from langchain_community.utilities import GoogleSerperAPIWrapper
-    from langchain.tools import Tool
     GOOGLE_SERPER_AVAILABLE = True
 except ImportError:
     pass
@@ -89,46 +88,6 @@ try:
     YOU_AVAILABLE = True
 except ImportError:
     pass
-
-
-# ==================== Utility Tools (always available) ====================
-
-@tool
-def calculator_tool(expression: str) -> str:
-    """Perform mathematical calculations.
-
-    Args:
-        expression: Mathematical expression to evaluate (e.g., "2 + 2", "5 * 10")
-    """
-    try:
-        result = eval(expression, {"__builtins__": {}}, {})
-        return f"Result: {result}"
-    except Exception as e:
-        return f"Error calculating '{expression}': {e}"
-
-
-@tool
-def extract_info_tool(text: str, key: str) -> str:
-    """Extract specific information from text.
-
-    Args:
-        text: Text to extract information from
-        key: Key information to look for
-    """
-    return f"Extracted information about '{key}' from the provided text"
-
-
-@tool
-def summarize_tool(text: str, max_length: int = 100) -> str:
-    """Summarize text to a specified length.
-
-    Args:
-        text: Text to summarize
-        max_length: Maximum length of summary (default 100)
-    """
-    if len(text) <= max_length:
-        return text
-    return text[:max_length] + "..."
 
 
 # ==================== Tool Loading Functions ====================
@@ -158,7 +117,7 @@ def get_tavily_tool():
         return None
 
     try:
-        return TavilySearchResults(max_results=5)
+        return TavilySearch(max_results=5)
     except Exception as e:
         print(f"  ⚠️  Error loading Tavily: {e}")
         return None
@@ -254,11 +213,11 @@ def get_google_serper_tool():
 
     try:
         search = GoogleSerperAPIWrapper()
-        return Tool(
-            name="google_serper",
-            func=search.run,
-            description="Search Google using Serper API. Use for general web searches."
-        )
+        @tool
+        def google_serper_search(query: str) -> str:
+            """Search Google using Serper API. Use for general web searches."""
+            return search.run(query)    
+        return google_serper_search
     except Exception as e:
         print(f"  ⚠️  Error loading Google Serper: {e}")
         return None
@@ -321,9 +280,6 @@ def get_all_available_tools(verbose: bool = True) -> List[Any]:
     """
     tools = []
 
-    # Always include utility tools
-    tools.extend([calculator_tool, extract_info_tool, summarize_tool])
-
     if verbose:
         print("\n📦 Loading Tools...")
         print("="*60)
@@ -362,7 +318,7 @@ def get_all_available_tools(verbose: bool = True) -> List[Any]:
 
     if verbose:
         print("="*60)
-        print(f"✅ Loaded {len(search_tools)} search tools + 3 utility tools")
+        print(f"✅ Loaded {len(search_tools)} search tools")
         print(f"⚠️  {len(missing_tools)} tools unavailable")
         print(f"\nTotal available: {len(tools)} tools")
 
@@ -382,11 +338,6 @@ def get_tool_info() -> Dict[str, Any]:
             "google_serper": GOOGLE_SERPER_AVAILABLE and bool(os.environ.get("SERPER_API_KEY")),
             "searxng": SEARXNG_AVAILABLE,
             "you": YOU_AVAILABLE and bool(os.environ.get("YDC_API_KEY")),
-        },
-        "utility_tools": {
-            "calculator": True,
-            "extract_info": True,
-            "summarize": True,
         },
         "packages_available": {
             "exa": EXA_AVAILABLE,
@@ -423,10 +374,6 @@ if __name__ == "__main__":
     for name, available in info["search_tools"].items():
         status = "✅ Available" if available else "⚠️  Not available"
         print(f"  {name}: {status}")
-
-    print("\n🔧 Utility Tools:")
-    for name, available in info["utility_tools"].items():
-        print(f"  {name}: ✅ Available")
 
     print("\n" + "="*60)
     print(f"✅ TEST COMPLETE - {len(tools)} tools ready to use")
