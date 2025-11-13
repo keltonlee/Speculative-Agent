@@ -52,7 +52,19 @@ class SpeculationState:
     cache_hits: int = 0
     cache_misses: int = 0
     draft_tools_launched: int = 0
-    
+
+    # Verification metrics (for enhanced tracking)
+    verified_by_ast: int = 0
+    verified_by_embedding: int = 0
+    both_failed: int = 0
+
+    # Tool usage tracking (for statistics)
+    draft_tool_names: List[str] = field(default_factory=list)
+    target_tool_names: List[str] = field(default_factory=list)
+
+    # Per-step verification details (for detailed results)
+    verification_details: List[Dict[str, Any]] = field(default_factory=list)
+
     # Timing
     draft_plan_time: float = 0.0
     draft_exec_time: float = 0.0

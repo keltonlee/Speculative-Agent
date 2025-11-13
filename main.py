@@ -7,7 +7,14 @@ from rich import print as rprint
 from dotenv import load_dotenv
 load_dotenv()
 
-from spec_tool_call import build_graph, GAIADataset, EvaluationResults, Msg
+from spec_tool_call import (
+    build_graph,
+    GAIADataset,
+    HotPotQADataset,
+    EvaluationResults,
+    Msg,
+    config
+)
 from spec_tool_call.metrics import MetricsLogger
 from spec_tool_call.models import RunState
 
@@ -47,66 +54,143 @@ async def run_demo():
 
 
 async def run_evaluation(level: str = None, max_examples: int = None):
-    """Run evaluation on GAIA dataset."""
-    rprint("[bold blue]Running GAIA Evaluation[/bold blue]\n")
+    """Run evaluation on configured dataset (GAIA or HotPotQA)."""
 
-    # Load dataset
-    dataset = GAIADataset()
-    dataset.load()
+    # Print configuration
+    config.print_config()
 
-    # Get examples to evaluate
-    if level:
-        examples = dataset.get_level(level)
-        rprint(f"Evaluating Level {level}: {len(examples)} examples")
-    else:
-        examples = dataset.get_all()
-        rprint(f"Evaluating all levels: {len(examples)} examples")
+    # Load appropriate dataset
+    if config.is_hotpot():
+        rprint(f"[bold blue]Running HotPotQA Evaluation[/bold blue]\n")
 
-    if max_examples:
-        examples = examples[:max_examples]
-        rprint(f"Limited to first {max_examples} examples\n")
+        # Load HotPotQA dataset
+        hotpot_dataset = HotPotQADataset(csv_path=config.dataset_path)
+        hotpot_dataset.load(
+            max_examples=max_examples or config.dataset_size,
+            random_seed=config.dataset_random_seed
+        )
 
-    # Build graph
-    app = build_graph()
+        # Filter by level if specified
+        if level:
+            examples = hotpot_dataset.get_by_level(level)
+            rprint(f"Evaluating Level '{level}': {len(examples)} examples")
+        else:
+            examples = hotpot_dataset.get_all()
+            rprint(f"Evaluating all levels: {len(examples)} examples")
 
-    # Run evaluation
-    results = EvaluationResults()
+        # Build graph
+        app = build_graph()
 
-    for idx, example in enumerate(examples, 1):
-        rprint(f"\n[bold]Example {idx}/{len(examples)}[/bold] - {example.task_id}")
-        rprint(f"Question: {example.question[:100]}...")
+        # Run evaluation
+        results = EvaluationResults()
 
-        # Initialize state
-        init_state = RunState(messages=[Msg(role="user", content=example.question)])
+        for idx, example in enumerate(examples, 1):
+            rprint(f"\n[bold]Example {idx}/{len(examples)}[/bold] - {example.id}")
+            rprint(f"Question: {example.question[:100]}...")
+            rprint(f"Type: {example.type} | Level: {example.level}")
 
-        # Run graph
-        final_state = None
-        try:
-            async for event in app.astream(
-                init_state,
-                config={"configurable": {"thread_id": f"eval-{example.task_id}"}}
-            ):
-                for node_name, state in event.items():
-                    if hasattr(state, 'step'):
-                        state.step += 1
-                        final_state = state
-        except Exception as e:
-            rprint(f"[red]Error: {e}[/red]")
-            continue
+            # Initialize state
+            init_state = RunState(messages=[Msg(role="user", content=example.question)])
 
-        # Collect metrics
-        if final_state:
-            metrics = MetricsLogger.get_metrics_dict(final_state)
-            predicted = final_state.answer or ""
-            results.add(example, predicted, metrics)
+            # Run graph
+            final_state = None
+            try:
+                async for event in app.astream(
+                    init_state,
+                    config={"configurable": {"thread_id": f"hotpot-{example.id}"}}
+                ):
+                    for node_name, state in event.items():
+                        if hasattr(state, 'step'):
+                            state.step += 1
+                            final_state = state
+            except Exception as e:
+                rprint(f"[red]Error: {e}[/red]")
+                continue
 
-            rprint(f"Predicted: {predicted}")
-            rprint(f"Ground Truth: {example.final_answer}")
-            rprint(f"Correct: {predicted.lower().strip() == example.final_answer.lower().strip()}")
+            # Collect metrics
+            if final_state:
+                metrics = MetricsLogger.get_metrics_dict(final_state)
+                predicted = final_state.answer or ""
 
-    # Print summary
-    results.print_summary()
-    results.save_json("results.json")
+                # Create a GAIA-style object for compatibility with EvaluationResults
+                # Note: We use a simple dataclass-like object here
+                class HotPotResult:
+                    def __init__(self, ex):
+                        self.task_id = ex.id
+                        self.question = ex.question
+                        self.final_answer = ex.answer
+                        self.level = ex.level
+
+                results.add(HotPotResult(example), predicted, metrics)
+
+                rprint(f"Predicted: {predicted}")
+                rprint(f"Ground Truth: {example.answer}")
+                rprint(f"Correct: {predicted.lower().strip() == example.answer.lower().strip()}")
+
+        # Print summary
+        results.print_summary()
+        results.save_json(f"results_hotpot.json")
+
+    else:  # GAIA dataset
+        rprint("[bold blue]Running GAIA Evaluation[/bold blue]\n")
+
+        # Load dataset
+        dataset = GAIADataset()
+        dataset.load()
+
+        # Get examples to evaluate
+        if level:
+            examples = dataset.get_level(level)
+            rprint(f"Evaluating Level {level}: {len(examples)} examples")
+        else:
+            examples = dataset.get_all()
+            rprint(f"Evaluating all levels: {len(examples)} examples")
+
+        if max_examples:
+            examples = examples[:max_examples]
+            rprint(f"Limited to first {max_examples} examples\n")
+
+        # Build graph
+        app = build_graph()
+
+        # Run evaluation
+        results = EvaluationResults()
+
+        for idx, example in enumerate(examples, 1):
+            rprint(f"\n[bold]Example {idx}/{len(examples)}[/bold] - {example.task_id}")
+            rprint(f"Question: {example.question[:100]}...")
+
+            # Initialize state
+            init_state = RunState(messages=[Msg(role="user", content=example.question)])
+
+            # Run graph
+            final_state = None
+            try:
+                async for event in app.astream(
+                    init_state,
+                    config={"configurable": {"thread_id": f"eval-{example.task_id}"}}
+                ):
+                    for node_name, state in event.items():
+                        if hasattr(state, 'step'):
+                            state.step += 1
+                            final_state = state
+            except Exception as e:
+                rprint(f"[red]Error: {e}[/red]")
+                continue
+
+            # Collect metrics
+            if final_state:
+                metrics = MetricsLogger.get_metrics_dict(final_state)
+                predicted = final_state.answer or ""
+                results.add(example, predicted, metrics)
+
+                rprint(f"Predicted: {predicted}")
+                rprint(f"Ground Truth: {example.final_answer}")
+                rprint(f"Correct: {predicted.lower().strip() == example.final_answer.lower().strip()}")
+
+        # Print summary
+        results.print_summary()
+        results.save_json("results_gaia.json")
 
 
 def main():

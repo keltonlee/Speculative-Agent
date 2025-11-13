@@ -2,45 +2,32 @@
 from langchain.tools import tool
 
 # Import existing implementations
-# Using Gensee AI for web search (Wikipedia-focused)
+# Using Gensee AI for web search (Wikipedia-focused) - kept for backward compatibility
 from .tools.search_tool import search_gensee_web
-# Commented out Serper-based search (requires SERPER_API_KEY)
-# from .tools.search_tool import search_serper_web, search_serper_with_content
 from .tools.file_tool import read_file as read_file_enhanced
 from .tools.code_exec_tool import execute_python_code, execute_calculation, generate_python_code
 from .tools.vision_tool import analyze_image, extract_text_from_image
+
+# Import multi-provider search tools (9 total: Exa, Tavily, Arxiv, AskNews, Brave, DuckDuckGo, Serper, SearXNG, You.com)
+from .tools.multi_search_tool import get_all_search_tools
 
 
 @tool
 def search_web(query: str, expand_search: bool = False) -> str:
     """Search Wikipedia for reliable information.
-    
+
     Uses Gensee AI to search Wikipedia articles. Returns 3 results by default,
     or 10 results if you need more comprehensive coverage.
-    
+
+    NOTE: This is kept for backward compatibility. For more search options,
+    the system will also load additional search providers (DuckDuckGo, Tavily, etc.)
+
     Args:
         query: The search query (will automatically search Wikipedia)
         expand_search: If True, return 10 results instead of 3 (use when you need more options)
     """
     max_results = 10 if expand_search else 3
     return search_gensee_web(query, max_results)
-
-
-# Commented out: search_with_content (requires Serper API)
-# This was the deep search with full content extraction
-# @tool
-# def search_with_content(query: str, expand_search: bool = False) -> str:
-#     """Search the web and extract full content from pages.
-#     
-#     Slower but more thorough - fetches and extracts actual page content.
-#     Returns 1 result by default (most relevant), or 3 if you need alternatives.
-#     
-#     Args:
-#         query: The search query
-#         expand_search: If True, return 3 results instead of 1 (use when confused or need alternatives)
-#     """
-#     max_results = 3 if expand_search else 1
-#     return search_serper_with_content(query, max_results)
 
 
 @tool
@@ -139,28 +126,65 @@ def vision_ocr(image_path: str) -> str:
     return str(result)
 
 
-# All tools (for Target/Actor model)
-ALL_TOOLS = [
-    search_web,  # Using Gensee AI (Wikipedia search)
-    # search_with_content,  # Disabled (was using Serper API)
-    file_read,
-    calculate,
-    code_generate,
-    code_exec,
-    vision_analyze,
-    vision_ocr,
+# Final answer formatting tool
+@tool
+def finish(answer: str) -> str:
+    """Format the final answer exactly as required."""
+    answer = answer.strip()
+    return f"FINAL ANSWER: {answer}"
+
+
+# Base tools (non-search)
+BASE_TOOLS = [
+    # search_web,
+    # file_read,
+    # calculate,
+    # finish,
+    # code_generate,
+    # code_exec,
+    # vision_analyze,
+    # vision_ocr,
 ]
 
-# Tools by name
+# Load multi-provider search tools dynamically
+# This loads all available search tools based on installed packages and API keys
+# Includes: Exa, Tavily, Arxiv, AskNews, Brave, DuckDuckGo, Google Serper, SearXNG, You.com
+MULTI_SEARCH_TOOLS = get_all_search_tools(verbose=False)
+
+# All tools (for Target/Actor model) = base tools + multi-search tools
+ALL_TOOLS = BASE_TOOLS + MULTI_SEARCH_TOOLS
+
+# Tools by name (for runtime lookup)
 TOOLS_BY_NAME = {tool.name: tool for tool in ALL_TOOLS}
 
 # Read-only tools (safe for speculation - used by Draft model)
+# All search tools are read-only (they don't modify state)
+# Calculate, code_generate, and vision tools are also safe
 READ_ONLY_TOOLS = [
-    search_web,  # Using Gensee AI (Wikipedia search)
-    # search_with_content,  # Disabled (was using Serper API)
-    file_read,
-    calculate,
-    code_generate,
-    vision_analyze,
-    vision_ocr,
-]
+    # search_web,
+    # file_read,
+    # calculate,
+    # finish,
+    # code_generate,
+    # vision_analyze,
+    # vision_ocr,
+] + MULTI_SEARCH_TOOLS
+
+
+def print_available_tools():
+    """Print summary of available tools (useful for debugging)."""
+    print(f"\n📊 Tool Registry Summary:")
+    print(f"  Total tools: {len(ALL_TOOLS)}")
+    print(f"  Base tools: {len(BASE_TOOLS)}")
+    print(f"  Search tools: {len(MULTI_SEARCH_TOOLS)}")
+    print(f"  Read-only tools (for speculation): {len(READ_ONLY_TOOLS)}")
+
+    print(f"\n📝 Available tool names:")
+    for name in sorted(TOOLS_BY_NAME.keys()):
+        print(f"  - {name}")
+
+
+# Print tool summary on import (can be disabled by setting env var)
+import os
+if os.environ.get("PRINT_TOOL_SUMMARY", "0") == "1":
+    print_available_tools()

@@ -47,7 +47,11 @@ def get_gemini_embeddings():
         # Get API key from config or environment
         try:
             from .config import config
-            api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+            api_key = (
+                config.embedding_api_key
+                or os.environ.get("GOOGLE_API_KEY")
+                or os.environ.get("GEMINI_API_KEY")
+            )
         except:
             api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
         

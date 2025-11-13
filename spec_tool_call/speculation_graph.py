@@ -13,6 +13,12 @@ from .tools_langchain import TOOLS_BY_NAME
 from .config import config
 
 
+def _log(message: str, *, force: bool = False) -> None:
+    """Conditional logger to control verbosity."""
+    if config.verbose_logging or force:
+        print(message)
+
+
 # -----------------------------
 # Helper functions
 # -----------------------------
@@ -131,7 +137,7 @@ async def node_plan_parallel(state: SpeculationState) -> SpeculationState:
     if state.done:
         return state
     
-    print(f"\n🚀 [Step {state.step + 1}] Starting PARALLEL draft + target planning")
+    _log(f"\n🚀 [Step {state.step + 1}] Starting PARALLEL draft + target planning")
     
     # Increment step
     state.step += 1
@@ -149,7 +155,7 @@ async def node_plan_parallel(state: SpeculationState) -> SpeculationState:
     # Define async tasks for both models
     async def draft_predict_and_execute():
         """Draft model predicts AND immediately executes tool calls (in background)."""
-        print(f"  📝 [Draft] Starting prediction...")
+        _log(f"  📝 [Draft] Starting prediction...")
         start_time = time.time()
         try:
             response = await draft_model.ainvoke(lc_messages)
@@ -157,19 +163,22 @@ async def node_plan_parallel(state: SpeculationState) -> SpeculationState:
             state.draft_plan_time = elapsed
             
             if response.tool_calls:
-                print(f"  📝 [Draft] Predicted {len(response.tool_calls)} tool(s) in {elapsed:.2f}s")
+                _log(f"  📝 [Draft] Predicted {len(response.tool_calls)} tool(s) in {elapsed:.2f}s")
                 for tc in response.tool_calls:
-                    print(f"     → {tc['name']}")
+                    _log(f"     → {tc['name']}")
                 
                 # 🚀 KEY INNOVATION: Immediately start executing tools (don't wait!)
-                print(f"  ⚙️  [Draft Exec] Starting IMMEDIATE execution (not waiting for target)...")
+                _log(f"  ⚙️  [Draft Exec] Starting IMMEDIATE execution (not waiting for target)...")
                 exec_start = time.time()
                 
                 for tool_call in response.tool_calls:
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
                     cache_key = state.get_cache_key(tool_name, tool_args)
-                    
+
+                    # Track draft tool names for statistics
+                    state.draft_tool_names.append(tool_name)
+
                     if tool_name in TOOLS_BY_NAME:
                         tool = TOOLS_BY_NAME[tool_name]
                         try:
@@ -181,7 +190,7 @@ async def node_plan_parallel(state: SpeculationState) -> SpeculationState:
                                 "success": True
                             }
                             state.draft_tools_launched += 1
-                            print(f"     ✓ Executed: {tool_name}")
+                            _log(f"     ✓ Executed: {tool_name}")
                         except Exception as e:
                             state.draft_cache[cache_key] = {
                                 "tool": tool_name,
@@ -191,20 +200,20 @@ async def node_plan_parallel(state: SpeculationState) -> SpeculationState:
                             }
                 
                 state.draft_exec_time = time.time() - exec_start
-                print(f"  ⚙️  [Draft Exec] Completed {len(response.tool_calls)} tool(s) in {state.draft_exec_time:.2f}s")
+                _log(f"  ⚙️  [Draft Exec] Completed {len(response.tool_calls)} tool(s) in {state.draft_exec_time:.2f}s")
                 
                 return response.tool_calls
             else:
-                print(f"  📝 [Draft] No tools predicted in {elapsed:.2f}s")
+                _log(f"  📝 [Draft] No tools predicted in {elapsed:.2f}s")
                 return []
         except Exception as e:
-            print(f"  ❌ [Draft] Error: {e}")
+            _log(f"  ❌ [Draft] Error: {e}", force=True)
             state.draft_plan_time = time.time() - start_time
             return []
     
     async def target_decide():
         """Target model decides actual tool calls (runs in parallel with draft execution)."""
-        print(f"  🎯 [Target] Starting decision...")
+        _log(f"  🎯 [Target] Starting decision...")
         start_time = time.time()
         try:
             response = await target_model.ainvoke(lc_messages)
@@ -218,32 +227,32 @@ async def node_plan_parallel(state: SpeculationState) -> SpeculationState:
                 if "FINAL ANSWER:" in content.upper():
                     answer_part = content.split("FINAL ANSWER:")[-1] if "FINAL ANSWER:" in content else content
                     answer = answer_part.strip()
-                    print(f"  🎯 [Target] Final answer in {elapsed:.2f}s: {answer[:50]}...")
+                    _log(f"  🎯 [Target] Final answer in {elapsed:.2f}s: {answer[:50]}...")
                     return ("final", content, answer)
                 else:
-                    print(f"  🎯 [Target] Thinking (no tools) in {elapsed:.2f}s")
+                    _log(f"  🎯 [Target] Thinking (no tools) in {elapsed:.2f}s")
                     return ("thinking", content, None)
             else:
                 ai_msg_content = _extract_content_str(response.content) or "[Calling tools]"
-                print(f"  🎯 [Target] Decided {len(response.tool_calls)} tool(s) in {elapsed:.2f}s")
+                _log(f"  🎯 [Target] Decided {len(response.tool_calls)} tool(s) in {elapsed:.2f}s")
                 for tc in response.tool_calls:
-                    print(f"     → {tc['name']}")
+                    _log(f"     → {tc['name']}")
                 return ("tools", ai_msg_content, response.tool_calls)
                 
         except Exception as e:
-            print(f"  ❌ [Target] Error: {e}")
+            _log(f"  ❌ [Target] Error: {e}", force=True)
             state.target_plan_time = time.time() - start_time
             return ("error", str(e), None)
     
     # Run both models in parallel!
-    print(f"  ⚡ Running draft and target SIMULTANEOUSLY (draft executes tools immediately)...")
+    _log(f"  ⚡ Running draft and target SIMULTANEOUSLY (draft executes tools immediately)...")
     draft_task = asyncio.create_task(draft_predict_and_execute())
     target_task = asyncio.create_task(target_decide())
     
     # Wait for both to complete
     draft_tools, (target_type, target_content, target_data) = await asyncio.gather(draft_task, target_task)
     
-    print(f"  ✓ Both models completed!")
+    _log(f"  ✓ Both models completed!")
     
     state.draft_tool_calls = draft_tools
     state.draft_ready = True
@@ -261,7 +270,7 @@ async def node_plan_parallel(state: SpeculationState) -> SpeculationState:
         # If target is thinking without calling tools, treat the content as final answer
         # This handles cases where model provides answer without explicit "FINAL ANSWER:" format
         if target_content and len(target_content.strip()) > 10:
-            print(f"  ✅ [Route] Target provided response without tools, treating as final answer")
+            _log(f"  ✅ [Route] Target provided response without tools, treating as final answer")
             state.done = True
             state.answer = target_content
         
@@ -285,14 +294,14 @@ async def node_execute_with_cache(state: SpeculationState) -> SpeculationState:
     if state.done or not state.target_tool_calls:
         return state
     
-    print(f"\n  🔍 [Execute] Verifying {len(state.target_tool_calls)} target tool(s) against draft cache...")
+    _log(f"\n  🔍 [Execute] Verifying {len(state.target_tool_calls)} target tool(s) against draft cache...")
     
     start_time = time.time()
     
     for tool_call in state.target_tool_calls:
         tool_name = tool_call["name"]
         tool_args = tool_call["args"]
-        print(f"tool_name: {tool_name}, tool_args: {tool_args}")
+        _log(f"tool_name: {tool_name}, tool_args: {tool_args}")
         
         # Try verification-based matching (handles AST exact match + semantic similarity)
         verification_result = await find_verified_match_in_cache(
@@ -310,17 +319,46 @@ async def node_execute_with_cache(state: SpeculationState) -> SpeculationState:
             result_str = verified_result["result"]
             state.messages.append(Msg(role="tool", name=tool_name, content=result_str))
             state.verified_results.append(verified_result)
-            
-            # Different messages for different verification methods
+
+            # Track verification method for enhanced metrics
             if method == "ast":
-                print(f"     ⚡ EXACT HIT: {tool_name} (AST match, similarity={similarity:.3f})")
-            else:
-                print(f"     ✓ SEMANTIC HIT: {tool_name} (method={method}, similarity={similarity:.3f})")
-        
+                state.verified_by_ast += 1
+                _log(f"     ⚡ EXACT HIT: {tool_name} (AST match, similarity={similarity:.3f})")
+            elif method == "embedding":
+                state.verified_by_embedding += 1
+                _log(f"     ✓ SEMANTIC HIT: {tool_name} (method={method}, similarity={similarity:.3f})")
+
+            # Track tool name for statistics
+            state.target_tool_names.append(tool_name)
+
+            # Record verification details for analysis
+            state.verification_details.append({
+                "target_tool": tool_name,
+                "target_args": tool_args,
+                "draft_tool": verified_result.get("tool"),
+                "draft_args": verified_result.get("args"),
+                "verified_by": method,
+                "similarity": similarity,
+                "cache_hit": True,
+            })
+
         else:
             # Real MISS - draft predicted differently, execute now
             state.cache_misses += 1
-            print(f"     ❌ MISS: {tool_name} (executing now)")
+            state.both_failed += 1  # Track failed verifications
+            _log(f"     ❌ MISS: {tool_name} (executing now)")
+
+            # Track tool name for statistics
+            state.target_tool_names.append(tool_name)
+
+            # Record miss details
+            state.verification_details.append({
+                "target_tool": tool_name,
+                "target_args": tool_args,
+                "verified_by": "none",
+                "similarity": 0.0,
+                "cache_hit": False,
+            })
             
             if tool_name in TOOLS_BY_NAME:
                 tool = TOOLS_BY_NAME[tool_name]
@@ -337,11 +375,11 @@ async def node_execute_with_cache(state: SpeculationState) -> SpeculationState:
                 except Exception as e:
                     error_msg = f"Error: {str(e)}"
                     state.messages.append(Msg(role="tool", name=tool_name, content=error_msg))
-                    print(f"     ❌ ERROR: {tool_name} ({e})")
+                    _log(f"     ❌ ERROR: {tool_name} ({e})", force=True)
             else:
                 error_msg = f"Error: Unknown tool '{tool_name}'"
                 state.messages.append(Msg(role="tool", name=tool_name, content=error_msg))
-                print(f"     ❌ ERROR: Unknown tool '{tool_name}'")
+                _log(f"     ❌ ERROR: Unknown tool '{tool_name}'", force=True)
     
     state.verify_time = time.time() - start_time
     
@@ -350,9 +388,9 @@ async def node_execute_with_cache(state: SpeculationState) -> SpeculationState:
     hit_rate = (state.cache_hits / total * 100) if total > 0 else 0
     
     if total > 0:
-        print(f"\n  📊 [Stats] Cache performance: {state.cache_hits}/{total} hits ({hit_rate:.1f}%)")
+        _log(f"\n  📊 [Stats] Cache performance: {state.cache_hits}/{total} hits ({hit_rate:.1f}%)")
         if state.cache_hits > 0:
-            print(f"     🎉 Speculation saved time by pre-executing {state.cache_hits} tool(s)!")
+            _log(f"     🎉 Speculation saved time by pre-executing {state.cache_hits} tool(s)!")
     
     return state
 
@@ -375,9 +413,9 @@ def route_after_execute(state: SpeculationState) -> Literal["plan", END]:
     if state.done:
         return END
     if state.step >= config.max_steps:
-        print(f"  ⏹  [Route] Max steps ({config.max_steps}) reached")
+        _log(f"  ⏹  [Route] Max steps ({config.max_steps}) reached", force=True)
         return END
-    print(f"  🔄 [Route] Continuing to next iteration")
+    _log(f"  🔄 [Route] Continuing to next iteration")
     return "plan"
 
 

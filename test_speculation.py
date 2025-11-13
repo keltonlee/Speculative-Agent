@@ -20,9 +20,10 @@ async def test_speculation_pipeline():
     
     # Print configuration
     rprint(f"\n[bold]Configuration:[/bold]")
-    rprint(f"  Actor Model (Target):  [green]{config.actor_model}[/green]")
-    rprint(f"  Spec Model (Draft):    [green]{config.spec_model}[/green]")
-    rprint(f"  Provider:              [green]{config.model_provider}[/green]")
+    rprint(f"  Actor Model (Target):  [green]{config.actor_model}[/green] ({config.actor_provider})")
+    rprint(f"  Spec Model (Draft):    [green]{config.spec_model}[/green] ({config.spec_provider})")
+    if config.actor_provider == config.spec_provider:
+        rprint(f"  Provider:              [green]{config.actor_provider}[/green]")
     rprint(f"  Max Steps:             [green]{config.max_steps}[/green]")
     
     # Test question
